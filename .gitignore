@@ -1,0 +1,5 @@
+# GoReleaser build output
+/dist/
+
+# Compiled binary
+/zpulse

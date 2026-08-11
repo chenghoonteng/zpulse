@@ -39,28 +39,32 @@ See the [roadmap](#roadmap) if you want to know what's coming first.
 
 ## Install
 
-Requires Python 3.11+ and a host with ZFS installed. Tested on Ubuntu 24.04 and Solaris 8.
+Requires Go 1.21+ and a host with ZFS installed. Tested on Ubuntu 24.04. No external dependencies — it's pure standard library.
 
 ```bash
 git clone https://github.com/example/zpulse.git
 cd zpulse
-pip install -e .
-zpulse serve --port 8090
+go build -o zpulse .
+./zpulse serve --port 8090
 ```
 
 Open `http://localhost:8090`.
+
+The dashboard is server-rendered and reloads itself on the refresh interval — no JavaScript required.
 
 The process needs permission to run `zpool status`, `zpool list`, and `zfs list`. On Linux this usually means running as a user with the `zfs` delegation set up, or as root.
 
 ## Configuration
 
-There is one config file, `~/.config/zpulse/config.toml`, and it's optional:
+There is one config file, `/etc/zpulse/config.toml`, and it's optional:
 
 ```toml
 port = 8090
 refresh_interval = 10   # seconds
 pools = []              # empty = show all pools
 ```
+
+The `--port` flag overrides the `port` value from the config file. Everything else is configured through the file.
 
 ## Roadmap
 
