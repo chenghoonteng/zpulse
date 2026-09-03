@@ -3,6 +3,13 @@
 #
 # zpulse shells out to `zpool` and `zfs`, so it is only useful on platforms with
 # ZFS. We build for Linux only.
+#
+# Released binaries are built with `-tags ebpf`, so per-process I/O attribution
+# is included. That tag pulls in github.com/cilium/ebpf, which is pure Go, so
+# the build stays CGO-free and the binary stays static. The BPF object it
+# embeds (zfsio_bpfel.o) is committed, so no C toolchain is needed here either.
+# The feature still does nothing without CAP_BPF/CAP_PERFMON at runtime; it
+# reports why and the rest of zpulse carries on.
 version: 2
 
 project_name: zpulse
@@ -13,6 +20,8 @@ builds:
     binary: zpulse
     env:
       - CGO_ENABLED=0
+    tags:
+      - ebpf
     goos:
       - linux
     goarch:
@@ -24,7 +33,7 @@ archives:
   - id: zpulse
     formats:
       - tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}.deb"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
       - LICENSE*
@@ -38,13 +47,21 @@ nfpms:
     maintainer: chenghoonteng <cheng@baidu.com>
     description: |-
       Read-only command-line monitor for ZFS pools.
-      Shows pool health, capacity and fragmentation, datasets, and running
-      scrubs. Shells out to zpool and zfs with read-only commands.
+      Shows pool health, capacity and fragmentation, datasets, running scrubs,
+      and per-process I/O. Shells out to zpool and zfs with read-only commands;
+      per-process attribution uses eBPF and needs CAP_BPF and CAP_PERFMON.
     license: MIT
     section: admin
     formats:
       - deb
     bindir: /usr/bin
+    # setcap lives here on Debian and Ubuntu. The postinstall script degrades
+    # gracefully without it, but the package ships a binary whose headline
+    # feature needs it, so it is a hard dependency rather than a suggestion.
+    dependencies:
+      - libcap2-bin
+    scripts:
+      postinstall: ./packaging/postinstall.sh
     contents:
       - src: ./README.md
         dst: /usr/share/doc/zpulse/README.md

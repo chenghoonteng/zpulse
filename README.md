@@ -10,7 +10,7 @@ A command-line monitor for ZFS pools. Early stage — it does a few things well 
 - **Pool overview** — health, capacity, and fragmentation for every pool on the host
 - **Dataset table** — used/available space and compression ratio per dataset
 - **Scrub status** — running scrubs with progress and estimated time remaining
-- **Per-process I/O** — which processes are reading and writing which datasets, right now. Optional, off by default, and the one feature that needs more than read-only shell commands. See [Per-process I/O](#per-process-io)
+- **Per-process I/O** — which processes are reading and writing which datasets, right now. Included in the release build, and the one feature that needs more than read-only shell commands: it wants `CAP_BPF`/`CAP_PERFMON`, and says so instead of it if it doesn't have them. See [Per-process I/O](#per-process-io)
 - **Read-only** — zpulse never writes to your pools. It shells out to `zpool` and `zfs` with read-only commands and parses the output
 
 That's the whole feature list right now.
@@ -82,19 +82,23 @@ Colour is on when stdout is a terminal and off when it is a pipe, so `zpulse sta
 
 ## Install
 
-Requires Go 1.23+ and a host with ZFS installed. Tested on Ubuntu 24.04. The default build has no external dependencies — it's pure standard library.
+Released binaries and the `.deb` are built with `-tags ebpf`, so per-process I/O is included. The `.deb` also grants the binary the two capabilities that feature needs, so an apt install works out of the box; a tarball needs one `setcap`, see [Per-process I/O](#per-process-io).
+
+To build from source you need Go 1.23+ and a host with ZFS. Tested on Ubuntu 24.04.
 
 ```bash
 git clone https://github.com/example/zpulse.git
 cd zpulse
-go build -o zpulse .
+go build -tags ebpf -o zpulse .
 ./zpulse
 ```
 
-To include per-process I/O attribution, build with the `ebpf` tag instead. That build links `github.com/cilium/ebpf` (pure Go, no cgo) and embeds a pre-compiled BPF object, so it still needs nothing beyond the Go toolchain:
+The `ebpf` tag is what the release build uses. It links `github.com/cilium/ebpf` (pure Go, no cgo) and embeds a pre-compiled BPF object, so it needs nothing beyond the Go toolchain and the binary stays static.
+
+Dropping the tag builds against the standard library alone, with no third-party dependencies at all. Everything works except the process table, which says it was left out:
 
 ```bash
-go build -tags ebpf -o zpulse .
+go build -o zpulse .
 ```
 
 zpulse needs permission to run `zpool status`, `zpool list`, and `zfs list`. On Linux this usually means running as a user with the `zfs` delegation set up, or as root.
@@ -115,13 +119,21 @@ Flags override the file: `--interval` overrides `refresh_interval`, `--pools` ov
 
 Everything else zpulse shows is aggregate. `zpool iostat` will tell you a pool is saturated and the dataset list will tell you which dataset is growing, but neither can tell you *which process* is responsible. This section fills that gap by counting bytes in the kernel, at the VFS layer, keyed by process and dataset.
 
-It is deliberately opt-in, because it is the only part of zpulse that is not just parsing command output:
+It sits behind a build tag because it is the only part of zpulse that is not just parsing command output. Released binaries are built with that tag; a plain `go build` leaves it out.
 
 **Requirements**
 
-- Linux, built with `-tags ebpf`
+- Linux, built with `-tags ebpf` (the release build; see [Install](#install))
 - Kernel 5.5+ with BTF (`CONFIG_DEBUG_INFO_BTF=y`; check `/sys/kernel/btf/vmlinux` exists). Ubuntu, Debian, Fedora and RHEL 9+ ship this by default
-- `CAP_BPF` and `CAP_PERFMON`, or root. With systemd:
+- `CAP_BPF` and `CAP_PERFMON`, or root. Those two were split out of `CAP_SYS_ADMIN` in Linux 5.8 — on a 5.5–5.7 kernel it is root or `CAP_SYS_ADMIN`.
+
+  The `.deb` grants these on install with `setcap cap_bpf,cap_perfmon+ep /usr/bin/zpulse`, so an apt install needs nothing further. For a binary you built or unpacked yourself, run that same command once:
+
+  ```bash
+  sudo setcap cap_bpf,cap_perfmon+ep ./zpulse
+  ```
+
+  Or, if you run it from a systemd unit:
 
   ```ini
   AmbientCapabilities=CAP_BPF CAP_PERFMON
