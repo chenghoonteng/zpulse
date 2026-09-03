@@ -24,7 +24,7 @@ archives:
   - id: zpulse
     formats:
       - tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}.deb"
     files:
       - README.md
       - LICENSE*
@@ -32,6 +32,7 @@ archives:
 nfpms:
   - id: zpulse
     package_name: zpulse
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_linux_{{ .Arch }}"
     vendor: chenghoonteng
     homepage: https://github.com/chenghoonteng/zpulse
     maintainer: chenghoonteng <cheng@baidu.com>
