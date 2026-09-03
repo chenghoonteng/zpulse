@@ -36,7 +36,7 @@ nfpms:
     homepage: https://github.com/chenghoonteng/zpulse
     maintainer: chenghoonteng <cheng@baidu.com>
     description: |-
-      Read-only web dashboard for ZFS pools.
+      Read-only command-line monitor for ZFS pools.
       Shows pool health, capacity and fragmentation, datasets, and running
       scrubs. Shells out to zpool and zfs with read-only commands.
     license: MIT

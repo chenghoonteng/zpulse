@@ -9,17 +9,17 @@ import (
 
 // Config holds the (optional) runtime configuration. Defaults match the README.
 type Config struct {
-	Port            int
 	RefreshInterval int      // seconds
 	Pools           []string // empty = show all pools
+	TopProcesses    int      // rows in the process I/O table; 0 disables it
 }
 
 // DefaultConfig returns the built-in defaults used when no config file exists.
 func DefaultConfig() Config {
 	return Config{
-		Port:            8090,
 		RefreshInterval: 10,
 		Pools:           nil,
+		TopProcesses:    10,
 	}
 }
 
@@ -29,7 +29,7 @@ func configPath() string {
 }
 
 // LoadConfig reads the config file if present. Missing files are not an error;
-// the defaults are returned instead. Only the three documented keys are read.
+// the defaults are returned instead. Only the documented keys are read.
 //
 // This is a deliberately tiny parser for a flat TOML file (key = value, plus a
 // simple string array for `pools`). zpulse's config is trivial enough that
@@ -65,16 +65,18 @@ func LoadConfig(path string) (Config, error) {
 		value = strings.TrimSpace(value)
 
 		switch key {
-		case "port":
-			if n, err := strconv.Atoi(value); err == nil {
-				cfg.Port = n
-			}
 		case "refresh_interval":
 			if n, err := strconv.Atoi(value); err == nil && n > 0 {
 				cfg.RefreshInterval = n
 			}
 		case "pools":
 			cfg.Pools = parseStringArray(value)
+		case "top_processes":
+			// Zero is meaningful here (it turns the table off), so unlike
+			// the other numbers this one is not filtered for n > 0.
+			if n, err := strconv.Atoi(value); err == nil && n >= 0 {
+				cfg.TopProcesses = n
+			}
 		}
 	}
 

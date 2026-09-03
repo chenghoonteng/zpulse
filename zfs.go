@@ -22,7 +22,7 @@ type Pool struct {
 	Frag   string // fragmentation, e.g. "8%"
 }
 
-// Dataset is a single ZFS dataset in the browser.
+// Dataset is a single ZFS dataset in the dataset table.
 type Dataset struct {
 	Name  string
 	Used  string
@@ -37,12 +37,12 @@ type Scrub struct {
 	ToGo    string // estimated time remaining, e.g. "00:30:00"
 }
 
-// Status is the full snapshot rendered by the dashboard.
+// Status is the full snapshot zpulse prints.
 type Status struct {
 	Pools    []Pool
 	Datasets []Dataset
 	Scrubs   []Scrub
-	Err      string // populated when a command fails, shown in the UI
+	Err      string // populated when a command fails, shown above the tables
 }
 
 const commandTimeout = 8 * time.Second
@@ -56,7 +56,7 @@ func run(name string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// Collect gathers the whole dashboard state. A failure in any single command is
+// Collect gathers the whole snapshot. A failure in any single command is
 // recorded in Status.Err but does not stop the others.
 func Collect(pools []string) Status {
 	var st Status
