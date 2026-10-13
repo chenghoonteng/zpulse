@@ -11,6 +11,7 @@ A command-line monitor for ZFS pools. Early stage — it does a few things well 
 - **Dataset table** — used/available space and compression ratio per dataset
 - **Scrub status** — running scrubs with progress and estimated time remaining
 - **Per-process I/O** — which processes are reading and writing which datasets, right now. Included in the release build, and the one feature that needs more than read-only shell commands: it wants `CAP_BPF`/`CAP_PERFMON`, and says so instead of it if it doesn't have them. See [Per-process I/O](#per-process-io)
+- **JSON output** — `--json` prints the same snapshot as one object for a monitoring agent, or one object per interval in `watch`. See [JSON output](#json-output)
 - **Read-only** — zpulse never writes to your pools. It shells out to `zpool` and `zfs` with read-only commands and parses the output
 
 That's the whole feature list right now.
@@ -22,7 +23,6 @@ That's the whole feature list right now.
 - Alerts / notifications on pool degradation
 - Historical metrics — everything is live-only, nothing is stored
 - Multi-host support
-- Machine-readable output (JSON) for scripting
 
 See the [roadmap](#roadmap) if you want to know what's coming first.
 
@@ -42,6 +42,7 @@ Flags:
   --sample DURATION     process I/O sample window, status only (default 1s)
   --interval DURATION   redraw interval, watch only (default 10s)
   --no-datasets         skip the dataset table
+  --json                machine-readable output instead of tables
   --color / --no-color  force colour on or off (default: on when a terminal)
 ```
 
@@ -79,6 +80,84 @@ Colour is on when stdout is a terminal and off when it is a pipe, so `zpulse sta
 `zpulse watch` keeps the same layout on screen and redraws it in place every 10 seconds. Ctrl-C quits.
 
 `status` exits non-zero if a `zpool` or `zfs` command failed — the error is printed above the tables either way.
+
+## JSON output
+
+`--json` replaces the tables with one JSON object, for a monitoring agent or a script:
+
+```bash
+zpulse status --json | jq '.pools[] | select(.capacity_percent > 80) | .name'
+```
+
+```json
+{
+  "time": "2026-02-14T09:31:07+01:00",
+  "pools": [
+    {
+      "name": "tank",
+      "health": "ONLINE",
+      "size": "21.8T",
+      "size_bytes": 23969353485516,
+      "alloc": "12.4T",
+      "alloc_bytes": 13633944184422,
+      "capacity": "56%",
+      "capacity_percent": 56,
+      "fragmentation": "8%",
+      "fragmentation_percent": 8
+    }
+  ],
+  "scrubs": [
+    {
+      "pool": "tank",
+      "percent_done": 32.14,
+      "time_remaining": "01:12:33",
+      "time_remaining_seconds": 4353
+    }
+  ],
+  "datasets": [
+    {
+      "name": "tank/db",
+      "used": "4.10T",
+      "used_bytes": 4507997673881,
+      "avail": "9.4T",
+      "avail_bytes": 10335409301094,
+      "compress_ratio": 1.02
+    }
+  ],
+  "process_io": {
+    "available": true,
+    "window_seconds": 1,
+    "processes": [
+      {
+        "pid": 1841,
+        "command": "postgres",
+        "dataset": "tank/db",
+        "read_bytes_per_sec": 0,
+        "write_bytes_per_sec": 98784247,
+        "read_iops": 0,
+        "write_iops": 812
+      }
+    ]
+  },
+  "pools_filter": []
+}
+```
+
+Things worth knowing about the schema:
+
+- **Every ZFS value appears twice**: the string ZFS printed (`"size": "21.8T"`) and a number derived from it (`"size_bytes"`). The numbers carry ZFS's own precision — three significant digits on sizes — so they are right to within a rounding step, not to the byte. Percentages and the per-process counters are exact.
+- **A derived field is absent, not zero, when it isn't known.** A pool whose `fragmentation` is `"-"` has no `fragmentation_percent` key at all, so a `0` in the output always means a measured zero.
+- **Lists are always lists.** `pools`, `scrubs`, `datasets` and `processes` are `[]` when empty, never `null`.
+- **`error`** appears only when a `zpool` or `zfs` command failed; the exit code is non-zero in that case too, and whatever did succeed is still in the object.
+- **`process_io.available`** is `false` when attribution is off or unavailable, with the reason in `process_io.error` — a missing `CAP_BPF`, a build without the `ebpf` tag, or `--top 0`. That is not a failed run and does not affect the exit code.
+
+`zpulse watch --json` streams instead: one compact object per line, per interval (newline-delimited JSON), with no cursor tricks even on a terminal.
+
+```bash
+zpulse watch --json --interval 30s | while read -r line; do ...; done
+```
+
+The first frame has `"warming_up": true` on `process_io`: process rates are differences between two samples, so the first one is only a baseline and its empty table means "not yet", not "nothing happened".
 
 ## Install
 
@@ -181,10 +260,9 @@ go generate -tags ebpf ./...
 Rough order of what's next:
 
 1. Snapshot listing per dataset
-2. `--json` output, so `zpulse status --json` can feed a monitoring agent
-3. ARC stats — reading `/proc/spl/kstat/zfs/arcstats` directly rather than shelling out
-4. Container attribution — the process table grouped by cgroup, so `postgres` in a container is named as such
-5. Exit codes that reflect pool health, for use straight from cron
+2. ARC stats — reading `/proc/spl/kstat/zfs/arcstats` directly rather than shelling out
+3. Container attribution — the process table grouped by cgroup, so `postgres` in a container is named as such
+4. Exit codes that reflect pool health, for use straight from cron
 
 No timeline promises. Issues and PRs welcome — the codebase is small enough to read in an afternoon.
 

@@ -82,6 +82,7 @@ Flags:
   --sample DURATION     process I/O sample window, status only (default 1s)
   --interval DURATION   redraw interval, watch only (default 10s)
   --no-datasets         skip the dataset table
+  --json                machine-readable output instead of tables
   --color / --no-color  force colour on or off (default: on when a terminal)
 
 Config is read from /etc/zpulse/config.toml if present; flags override it.
@@ -95,6 +96,7 @@ type options struct {
 	sample   time.Duration
 	interval time.Duration
 	datasets bool
+	json     bool
 	palette  palette
 }
 
@@ -110,6 +112,7 @@ func parseFlags(name string, cfg Config, args []string) (options, error) {
 	sample := fs.Duration("sample", time.Second, "process I/O sample window for `status`")
 	interval := fs.Duration("interval", time.Duration(cfg.RefreshInterval)*time.Second, "redraw interval for `watch`")
 	noDatasets := fs.Bool("no-datasets", false, "skip the dataset table")
+	asJSON := fs.Bool("json", false, "print JSON instead of tables")
 	forceColor := fs.Bool("color", false, "force colour output")
 	noColor := fs.Bool("no-color", false, "disable colour output")
 
@@ -144,6 +147,7 @@ func parseFlags(name string, cfg Config, args []string) (options, error) {
 		sample:   *sample,
 		interval: *interval,
 		datasets: !*noDatasets,
+		json:     *asJSON,
 		palette:  palette{enabled: colorEnabled(*forceColor, *noColor, os.Stdout)},
 	}, nil
 }
@@ -177,14 +181,25 @@ func runStatus(cfg Config, args []string) error {
 		st.Datasets = nil
 	}
 
-	Render(os.Stdout, opts.palette, report{
-		Status:    st,
-		At:        time.Now(),
-		ProcIO:    rows,
-		ProcIOErr: procErr,
-		ProcNote:  note,
-		Filter:    opts.cfg.Pools,
-	})
+	rep := report{
+		Status:     st,
+		At:         time.Now(),
+		ProcIO:     rows,
+		ProcIOErr:  procErr,
+		ProcNote:   note,
+		ProcWindow: opts.sample,
+		Filter:     opts.cfg.Pools,
+	}
+
+	if opts.json {
+		// A failed command is reported inside the object, as `error`, so the
+		// consumer gets one parseable thing either way.
+		if err := RenderJSON(os.Stdout, rep, true); err != nil {
+			return err
+		}
+	} else {
+		Render(os.Stdout, opts.palette, rep)
+	}
 
 	if st.Err != "" {
 		return errReported
@@ -233,7 +248,9 @@ func runWatch(cfg Config, args []string) error {
 	monitor := startIOMonitor(opts.cfg)
 	defer monitor.Close()
 
-	tty := isTerminal(os.Stdout)
+	// JSON output is a stream for another program to read, so none of the
+	// terminal redrawing applies to it even when stdout is a terminal.
+	tty := isTerminal(os.Stdout) && !opts.json
 	if tty {
 		fmt.Print("\033[?25l") // hide the cursor while we redraw
 		defer fmt.Print("\033[?25h")
@@ -253,7 +270,11 @@ func runWatch(cfg Config, args []string) error {
 			if tty {
 				fmt.Print("\033[?25h")
 			}
-			fmt.Println()
+			if !opts.json {
+				// Leave the shell prompt on its own line. A JSON stream ends
+				// with the last object's newline and nothing after it.
+				fmt.Println()
+			}
 			return nil
 		case <-ticker.C:
 		}
@@ -268,9 +289,30 @@ func draw(opts options, monitor *ioMonitor, tty bool) {
 	rows, procErr, ready := monitor.Snapshot()
 
 	note := opts.interval.String() + " interval"
-	if procErr == "" && !ready {
+	warming := procErr == "" && !ready
+	if warming {
 		// Nothing to show yet: the first sample is only a baseline.
 		note = "sampling, first numbers in " + opts.interval.String()
+	}
+
+	rep := report{
+		Status:     st,
+		At:         time.Now(),
+		ProcIO:     rows,
+		ProcIOErr:  procErr,
+		ProcNote:   note,
+		ProcWindow: opts.interval,
+		ProcWarm:   warming,
+		Filter:     opts.cfg.Pools,
+	}
+
+	if opts.json {
+		// One compact object per interval: newline-delimited JSON, so a reader
+		// can consume frames as they arrive instead of waiting for an end.
+		if err := RenderJSON(os.Stdout, rep, false); err != nil {
+			log.Printf("warning: could not write JSON: %v", err)
+		}
+		return
 	}
 
 	var out strings.Builder
@@ -283,14 +325,7 @@ func draw(opts options, monitor *ioMonitor, tty bool) {
 		out.WriteString("\n")
 	}
 
-	Render(&out, opts.palette, report{
-		Status:    st,
-		At:        time.Now(),
-		ProcIO:    rows,
-		ProcIOErr: procErr,
-		ProcNote:  note,
-		Filter:    opts.cfg.Pools,
-	})
+	Render(&out, opts.palette, rep)
 
 	if tty {
 		out.WriteString("\n" + opts.palette.dim("Ctrl-C to quit") + "\n")

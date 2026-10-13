@@ -256,11 +256,13 @@ func rate(bps uint64) string {
 // report is everything one screen of output needs.
 type report struct {
 	Status
-	At        time.Time
-	ProcIO    []ProcIO
-	ProcIOErr string   // why there is no process table, if there isn't one
-	ProcNote  string   // shown next to the PROCESS I/O heading
-	Filter    []string // the pools asked for, for the header line
+	At         time.Time
+	ProcIO     []ProcIO
+	ProcIOErr  string        // why there is no process table, if there isn't one
+	ProcNote   string        // shown next to the PROCESS I/O heading
+	ProcWindow time.Duration // the window those rates cover, for --json
+	ProcWarm   bool          // true while the first sample is only a baseline
+	Filter     []string      // the pools asked for, for the header line
 }
 
 // Render writes a full report.
